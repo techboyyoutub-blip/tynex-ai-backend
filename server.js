@@ -1,64 +1,84 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
 
 const app = express();
 
+// Middleware (ORDER MATTERS — must come BEFORE routes)
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// API Keys from environment variables (secure — not hardcoded)
+// Set these in your Render dashboard: Dashboard → Environment → Add Environment Variable
 const API_PROVIDERS = [
     {
         name: 'Google Gemini',
         url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         model: 'gemini-2.0-flash',
-        key: 'AIzaSyBq4xp6VgiA23f5Oh9RMpyMoLqdZJKwSK0'
+        key: process.env.GEMINI_KEY || ''
     },
     {
         name: 'Groq',
         url: 'https://api.groq.com/openai/v1/chat/completions',
         model: 'llama-3.2-3b-preview',
-        key: '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'
+        key: process.env.GROQ_KEY || ''
     },
     {
         name: 'Cerebras',
         url: 'https://api.cerebras.ai/v1/chat/completions',
         model: 'llama-3.3-8b',
-        key: 'csk-thy85wjcevdjtp3x3pv63225v64pe2v2ykhxvd58myknmtnj'
+        key: process.env.CEREBRAS_KEY || ''
     },
     {
         name: 'OpenRouter',
         url: 'https://openrouter.ai/api/v1/chat/completions',
         model: 'google/gemini-2.5-flash-preview:free',
-        key: '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'
+        key: process.env.OPENROUTER_KEY || ''
     },
     {
         name: 'SambaNova',
         url: 'https://api.sambanova.ai/v1/chat/completions',
         model: 'Meta-Llama-3.2-3B-Instruct',
-        key: '6130c44f-d3f2-4dbd-b966-f1f6b100dfb6'
+        key: process.env.SAMBANOVA_KEY || ''
     },
     {
         name: 'Mistral',
         url: 'https://api.mistral.ai/v1/chat/completions',
         model: 'mistral-tiny',
-        key: 'vcsjOX0iklAa2X6BzwjM3znlD1ZC9Zie'
+        key: process.env.MISTRAL_KEY || ''
     },
     {
         name: 'DeepSeek',
         url: 'https://api.deepseek.com/chat/completions',
         model: 'deepseek-chat',
-        key: 'sk-497fa2351ca94994bf8bcd22b7cf21e5'
+        key: process.env.DEEPSEEK_KEY || ''
     }
 ];
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
-app.get('/', (req, res) => res.json({ message: 'TYNEX AI Backend Active' }));
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({ message: 'TYNEX AI Backend Active' });
+});
+
+// Chat endpoint
 app.post('/chat', async (req, res) => {
     const { message, history } = req.body;
-    
+
+    if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+    }
+
     for (const provider of API_PROVIDERS) {
+        // Skip providers with no API key
+        if (!provider.key) {
+            console.log(`Skipping ${provider.name}: No API key configured`);
+            continue;
+        }
+
         try {
             const response = await fetch(provider.url, {
                 method: 'POST',
@@ -78,11 +98,14 @@ app.post('/chat', async (req, res) => {
                 })
             });
 
-            if (!response.ok) continue;
-            
+            if (!response.ok) {
+                console.log(`${provider.name} returned ${response.status}`);
+                continue;
+            }
+
             const data = await response.json();
             const reply = data.choices?.[0]?.message?.content;
-            
+
             if (reply) {
                 return res.json({ response: reply, provider: provider.name });
             }
@@ -90,7 +113,7 @@ app.post('/chat', async (req, res) => {
             console.log(`${provider.name} failed:`, e.message);
         }
     }
-    
+
     res.status(503).json({ error: 'All AI providers failed' });
 });
 
